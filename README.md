@@ -78,6 +78,12 @@ spell --clear
 
 ### Customizing Your Practice
 
+**Practice with the Word Hidden (Definition-Only Mode):**
+To challenge yourself by spelling the word using only its definition, use the `--hide-word` or `-d` flag. This is excellent for testing true vocabulary recall.
+```bash
+spell --hide-word
+```
+
 **Drill Words with the Repeat Flag:**
 To drill a word multiple times before its review level increases, use the `--repeat` or `-r` flag.
 ```bash

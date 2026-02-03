@@ -30,6 +30,7 @@ const state = {
   jsonFilepath: '',
   showSuccessIndicator: false,
   showErrorIndicator: false,
+  hideWord: false,
 };
 
 // --- Terminal Helpers ---
@@ -97,6 +98,7 @@ function displayHelp() {
   console.log(centerWithMargin(`  ${chalk.cyan('spell --manage or -m')}            - Enter interactive word management mode.`, HORIZONTAL_MARGIN));
   console.log(centerWithMargin(`  ${chalk.cyan('spell --clear or -c')}             - Interactively delete all words.`, HORIZONTAL_MARGIN));
   console.log(centerWithMargin(`  ${chalk.cyan('spell --repeat <n> or -r <n>')} - Set drill count for practice sessions (e.g., -r 3).`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell --hide-word or -d')}         - Practice with the word hidden (definition-only).`, HORIZONTAL_MARGIN));
   console.log(centerWithMargin(`  ${chalk.cyan('spell --help or -h')}              - Show this help screen.`, HORIZONTAL_MARGIN));
   console.log(centerWithMargin('\n' + chalk.bold('In-Session Controls (Practice Mode):'), HORIZONTAL_MARGIN));
   console.log(centerWithMargin(`  ${chalk.cyan('Ctrl+D')}                          - Delete the current word from your list.`, HORIZONTAL_MARGIN));
@@ -214,6 +216,7 @@ async function initialize() {
   }
 
   if (args.includes('--manage') || args.includes('-m')) state.mode = 'manage';
+  if (args.includes('--hide-word') || args.includes('-d')) state.hideWord = true;
 
   const repeatIndex = args.findIndex(arg => arg === '-r' || arg === '--repeat');
   state.repeatCount = (repeatIndex !== -1 && args[repeatIndex + 1]) ? parseInt(args[repeatIndex + 1], 10) : 3;
@@ -281,7 +284,11 @@ function render(wordOverride = null, colorFn = chalk.white) {
   if (wordOverride !== null) {
     displayWord = wordOverride.split('').join(' ');
   } else if (!state.hasStartedTyping) {
-    displayWord = currentWord.word.split('').join(' ');
+    if (state.hideWord) {
+      displayWord = '_ '.repeat(currentWord.word.length).trim();
+    } else {
+      displayWord = currentWord.word.split('').join(' ');
+    }
   } else {
     const typed = state.userInput.split('').join(' ');
     const remaining = currentWord.word.length - state.userInput.length;

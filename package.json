@@ -1,6 +1,6 @@
 {
   "name": "@rolandnsharp/spell",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A science-based CLI app for spelling, typing, and vocabulary training.",
   "main": "index.js",
   "type": "module",
@@ -33,6 +33,7 @@
   "homepage": "https://github.com/rolandnsharp/spell#readme",
   "dependencies": {
     "chalk": "^5.6.2",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "strip-ansi": "^7.0.1"
   }
 }
