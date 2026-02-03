@@ -6,6 +6,7 @@ import chalk from 'chalk';
 import path from 'path';
 import os from 'os';
 import fetch from 'node-fetch';
+import stripAnsi from 'strip-ansi';
 
 // --- Configuration & Setup ---
 
@@ -18,18 +19,6 @@ import fetch from 'node-fetch';
  * @property {string} nextReviewDate - ISO date string of the next scheduled review for the word.
  */
 
-/**
- * Application state.
- * @property {WordData[]} wordList - The list of word objects to practice.
- * @property {number} currentIndex - The index of the current word in the list.
- * @property {string} userInput - The user's current typed input.
- * @property {boolean} hasStartedTyping - Whether the user has started typing the current word.
- * @property {'typing'|'success'|'error'|'manage'} mode - The current state of the application.
- * @property {number} currentWordStreak - The number of consecutive correct spellings for the *current* word in a drill session.
- * @property {number} repeatCount - The number of times a word must be spelled correctly in a row to advance its SRS level.
- * @property {string} jsonFilepath - The absolute path to the spelling list JSON file.
- * @property {boolean} showSuccessIndicator - A flag to show a non-blocking success message.
- */
 const state = {
   wordList: [],
   currentIndex: 0,
@@ -37,34 +26,58 @@ const state = {
   hasStartedTyping: false,
   mode: 'typing',
   currentWordStreak: 0,
-  repeatCount: 1,
+  repeatCount: 3,
   jsonFilepath: '',
   showSuccessIndicator: false,
+  showErrorIndicator: false,
 };
 
 // --- Terminal Helpers ---
 
 function hideCursor() { process.stdout.write('\x1B[?25l'); }
-function showCursor() { process.stdout.write('\x1B?25h'); }
+function showCursor() { process.stdout.write('\x1B[?25h'); }
 function clearScreen() { process.stdout.write('\x1Bc'); }
+
+const HORIZONTAL_MARGIN = 4; // General padding on each side for most content
+const DEFINITION_INNER_PADDING = 4; // Additional padding *within* the definition's content area
+
+/**
+ * Centers a string of text within a given width, with optional horizontal margins.
+ * @param {string} text - The text to center.
+ * @param {number} [margin=0] - The horizontal margin to apply on both sides.
+ * @returns {string} The padded and centered text.
+ */
+function centerWithMargin(text, margin = 0) {
+  const totalTerminalWidth = process.stdout.columns || 80;
+  const effectiveContentWidth = totalTerminalWidth - (margin * 2);
+  
+  return text.split('\n').map(line => {
+    // Use stripAnsi to get the true length of the visible text
+    const strippedLineLength = stripAnsi(line).length;
+    // Calculate padding needed to center *within the effective content width*
+    const pad = Math.floor((effectiveContentWidth - strippedLineLength) / 2);
+    // Prepend the total margin (outer + inner centering pad) to the line
+    return ' '.repeat(margin + Math.max(0, pad)) + line;
+  }).join('\n');
+}
 
 // --- Help Screen ---
 
 function displayHelp() {
   clearScreen();
-  console.log(chalk.bold.yellow('\nSpell: A Science-Based Spelling Trainer'));
-  console.log(chalk.gray('----------------------------------------'));
-  console.log('\n' + chalk.bold('Usage:'));
-  console.log(`  ${chalk.cyan('spell')}                           - Start a practice session.`);
-  console.log(`  ${chalk.cyan('spell <word>')}                    - Add a new word or reset an existing one.`);
-  console.log(`  ${chalk.cyan('spell --import <file>')}          - Bulk import words from a text file.`);
-  console.log(`  ${chalk.cyan('spell --manage or -m')}            - Enter interactive word management mode.`);
-  console.log(`  ${chalk.cyan('spell --clear')}                   - Interactively delete all words.`);
-  console.log(`  ${chalk.cyan('spell -r <number>')}               - Set drill count for practice sessions (e.g., -r 3).`);
-  console.log(`  ${chalk.cyan('spell --help or -h')}              - Show this help screen.`);
-  console.log('\n' + chalk.bold('In-Session Controls (Practice Mode):'));
-  console.log(`  ${chalk.cyan('Ctrl+D')}                          - Delete the current word from your list.`);
-  console.log(`  ${chalk.cyan('Ctrl+C')}                          - Exit the session at any time.`);
+  console.log(centerWithMargin(chalk.bold.yellow('\nSpell: A Science-Based Spelling Trainer'), HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(chalk.gray('----------------------------------------'), HORIZONTAL_MARGIN));
+  console.log(centerWithMargin('\n' + chalk.bold('Usage:'), HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell')}                           - Start a practice session.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell <word>')}                    - Add a new word or reset an existing one.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell --import <file>')}          - Bulk import words from a text file.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell --manage or -m')}            - Enter interactive word management mode.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell --clear or -c')}             - Interactively delete all words.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell --repeat <n> or -r <n>')} - Set drill count for practice sessions (e.g., -r 3).`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('spell --help or -h')}              - Show this help screen.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin('\n' + chalk.bold('In-Session Controls (Practice Mode):'), HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('Ctrl+D')}                          - Delete the current word from your list.`, HORIZONTAL_MARGIN));
+  console.log(centerWithMargin(`  ${chalk.cyan('Ctrl+C')}                          - Exit the session at any time.`, HORIZONTAL_MARGIN));
   process.exit(0);
 }
 
@@ -145,6 +158,8 @@ async function migrateTxtToJson(txtFilepath, jsonFilepath) {
   console.log(chalk.bold.green('Migration complete! Old file renamed to `spellingList.txt.bak`.'));
 }
 
+// No global readline instance here. Each interactive mode will manage its own.
+
 async function initialize() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) displayHelp();
@@ -166,7 +181,7 @@ async function initialize() {
     fs.writeFileSync(state.jsonFilepath, '[]');
   }
   
-  if (args.includes('--clear')) {
+  if (args.includes('--clear') || args.includes('-c')) {
     await clearList();
   }
 
@@ -178,7 +193,7 @@ async function initialize() {
   if (args.includes('--manage') || args.includes('-m')) state.mode = 'manage';
 
   const repeatIndex = args.findIndex(arg => arg === '-r' || arg === '--repeat');
-  state.repeatCount = (repeatIndex !== -1 && args[repeatIndex + 1]) ? parseInt(args[repeatIndex + 1], 10) : 1;
+  state.repeatCount = (repeatIndex !== -1 && args[repeatIndex + 1]) ? parseInt(args[repeatIndex + 1], 10) : 3;
   
   const wordToAdd = args.find(arg => !arg.startsWith('-') && isNaN(arg) && !fs.existsSync(path.resolve(arg)));
   if (wordToAdd) {
@@ -228,36 +243,139 @@ async function importList(filePath) {
   process.exit(0);
 }
 
-function center(text) { const width = process.stdout.columns || 80; return text.split('\n').map(line => ' '.repeat(Math.max(0, Math.floor((width - line.length) / 2))) + line).join('\n'); }
-function censorWordInDefinition(word, definition) { let root = word; if (word.length > 4 && word.endsWith('y')) root = word.slice(0, -1); else if (word.length > 4 && word.endsWith('e')) root = word.slice(0, -1); const regex = new RegExp(`\\b${root}\\w*\\b`, 'gi'); return definition.replace(regex, match => '*'.repeat(match.length)); }
+function censorWordInDefinition(word, definition) {
+  let root = word;
+  if (word.length > 4 && word.endsWith('y')) root = word.slice(0, -1);
+  else if (word.length > 4 && word.endsWith('e')) root = word.slice(0, -1);
+  const regex = new RegExp(`\\b${root}\\w*\\b`, 'gi');
+  return definition.replace(regex, match => '*'.repeat(match.length));
+}
+
 function render(wordOverride = null, colorFn = chalk.white) { 
   const currentWord = state.wordList[state.currentIndex];
   if (!currentWord) return;
 
   let displayWord;
-  if (wordOverride !== null) displayWord = wordOverride;
-  else if (!state.hasStartedTyping) displayWord = currentWord.word;
-  else { const blanks = ' '.repeat(currentWord.word.length - state.userInput.length); displayWord = state.userInput + blanks; }
-
+  if (wordOverride !== null) {
+    displayWord = wordOverride.split('').join(' ');
+  } else if (!state.hasStartedTyping) {
+    displayWord = currentWord.word.split('').join(' ');
+  } else {
+    const typed = state.userInput.split('').join(' ');
+    const remaining = currentWord.word.length - state.userInput.length;
+    const blanks = ' '.repeat(remaining * 2 - 1);
+    displayWord = typed + (blanks.length > 0 ? ' ' + blanks : '');
+  }
+  
   const censoredDefinition = censorWordInDefinition(currentWord.word, currentWord.definition);
+
   clearScreen();
   hideCursor();
-  
+
+  // Persistent Header (Correct/Incorrect messages)
   if (state.showSuccessIndicator) {
-    console.log(chalk.green('✔ Correct!'));
+    console.log(centerWithMargin(chalk.green('✔ Correct!'), HORIZONTAL_MARGIN));
     state.showSuccessIndicator = false;
+  } else if (state.showErrorIndicator) {
+    console.log(centerWithMargin(chalk.red('✖ Incorrect!'), HORIZONTAL_MARGIN));
+    state.showErrorIndicator = false;
   } else {
-    console.log('\n');
+    console.log(centerWithMargin('', HORIZONTAL_MARGIN)); // Reserve the line to prevent jumping
   }
 
-  console.log('\n');
-  console.log(center(chalk.dim(censoredDefinition)));
-  console.log('\n\n');
-  console.log(center(colorFn(displayWord)));
-}
-function flash(colorFn) { const word = state.wordList[state.currentIndex].word; render(word, colorFn); }
+  // Dashboard - Boxed Word Display
+  const wordColorFn = (state.mode === 'error') ? chalk.red : colorFn;
+  const wordLine = `${chalk.dim('Word:')}   ${chalk.bold(wordColorFn(displayWord))}`;
+  const levelLine = `${chalk.dim('Level:')}  ${currentWord.level}`;
+  const streakLine = `${chalk.dim('Streak:')} ${state.currentWordStreak} / ${state.repeatCount}`;
 
-function renderManageScreen(rl, message = '') { clearScreen(); console.log(chalk.bold.yellow('\n-- Interactive Word Manager --')); console.log(chalk.gray('------------------------------')); if (state.wordList.length === 0) { console.log(center(chalk.yellow('Your spelling list is empty.'))); } else { state.wordList.forEach((wordData, index) => { const nextReview = new Date(wordData.nextReviewDate); const now = new Date(); let status = ''; if (wordData.level === 0) status = chalk.blue('(New)'); else if (nextReview <= now) status = chalk.red('(Due NOW!)'); else { const diffDays = Math.ceil(Math.abs(nextReview - now) / (1000 * 60 * 60 * 24)); status = chalk.green(`(Level ${wordData.level}, in ${diffDays} days)`); } console.log(`  ${index + 1}. ${wordData.word} ${status}`); }); } console.log('\n' + chalk.bold('Actions:')); console.log('  (d)elete <number>    - Delete a word (e.g., d 2)'); console.log('  (r)eset <number>     - Reset a word\'s progress (e.g., r 3)'); console.log('  (q)uit               - Exit management mode'); console.log('\n' + chalk.dim(message)); rl.prompt(); }
+  // Determine the widest line for box drawing (stripping ANSI codes for accurate length)
+  const lines = [wordLine, levelLine, streakLine];
+  const maxWidth = Math.max(...lines.map(line => stripAnsi(line).length));
+  // The box width is the widest line content + 2 for internal padding + 2 for the vertical borders
+  const boxInnerContentWidth = maxWidth + 2;
+  
+  // Build the un-centered box string
+  let boxedContent = '';
+  boxedContent += chalk.gray('╔') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╗\n');
+  lines.forEach(line => {
+    // Pad each line to fill the box inner content width
+    const paddingNeeded = boxInnerContentWidth - stripAnsi(line).length;
+    boxedContent += chalk.gray('║') + line + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
+  });
+  boxedContent += chalk.gray('╚') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╝');
+  
+  console.log(centerWithMargin(boxedContent, HORIZONTAL_MARGIN));
+
+  // Definition
+  console.log(); // Spacer
+  console.log(centerWithMargin(chalk.dim('Definition:'), HORIZONTAL_MARGIN));
+  
+  // NEW: Manually apply inner padding to each line of the definition, then center the block
+  const definitionLines = censoredDefinition.split('\n');
+  const definitionBlockWithInnerPadding = definitionLines.map(line => {
+    const totalTerminalWidth = process.stdout.columns || 80;
+    // Calculate available width for definition text *after* outer margin and inner padding
+    const availableWidth = totalTerminalWidth - (HORIZONTAL_MARGIN * 2) - (DEFINITION_INNER_PADDING * 2);
+    
+    // Wrap text within the available width
+    let wrappedLines = [];
+    let currentLine = '';
+    const words = line.split(' ');
+    for (const word of words) {
+      if (stripAnsi(currentLine + word).length + 1 > availableWidth && currentLine.length > 0) {
+        wrappedLines.push(currentLine);
+        currentLine = word; 
+      } else {
+        currentLine += (currentLine.length > 0 ? ' ' : '') + word;
+      }
+    }
+    if (currentLine.length > 0) wrappedLines.push(currentLine);
+
+    // Pad and center each wrapped line
+    return wrappedLines.map(wrappedLine => {
+      const strippedLength = stripAnsi(wrappedLine).length;
+      const leftPad = ' '.repeat(DEFINITION_INNER_PADDING + Math.floor((availableWidth - strippedLength) / 2));
+      const rightPad = ' '.repeat(DEFINITION_INNER_PADDING + Math.ceil((availableWidth - strippedLength) / 2));
+      return leftPad + wrappedLine + rightPad;
+    }).join('\n');
+  }).filter(Boolean).join('\n'); // Filter(Boolean) removes empty lines
+
+  console.log(chalk.dim(definitionBlockWithInnerPadding));
+}
+
+function flash(colorFn) {
+  render(state.wordList[state.currentIndex].word, colorFn);
+}
+
+function renderManageScreen(rl, message = '') { 
+  clearScreen(); 
+  console.log(centerWithMargin(chalk.bold.yellow('\n-- Interactive Word Manager --'), HORIZONTAL_MARGIN)); 
+  console.log(centerWithMargin(chalk.gray('------------------------------'), HORIZONTAL_MARGIN)); 
+  if (state.wordList.length === 0) {
+    console.log(centerWithMargin(chalk.yellow('Your spelling list is empty.'), HORIZONTAL_MARGIN)); 
+  } else {
+    state.wordList.forEach((wordData, index) => {
+      const nextReview = new Date(wordData.nextReviewDate);
+      const now = new Date();
+      let status = '';
+      if (wordData.level === 0) status = chalk.blue('(New)');
+      else if (nextReview <= now) status = chalk.red('(Due NOW!)');
+      else {
+        const diffDays = Math.ceil(Math.abs(nextReview - now) / (1000 * 60 * 60 * 24));
+        status = chalk.green(`(Level ${wordData.level}, in ${diffDays} days)`);
+      }
+      console.log(centerWithMargin(`  ${index + 1}. ${wordData.word} ${status}`, HORIZONTAL_MARGIN)); 
+    }); 
+  }
+  console.log(centerWithMargin('\n' + chalk.bold('Actions:'), HORIZONTAL_MARGIN)); 
+  console.log(centerWithMargin('  (d)elete <number>    - Delete a word (e.g., d 2)', HORIZONTAL_MARGIN)); 
+  console.log(centerWithMargin('  (r)eset <number>     - Reset a word\'s progress (e.g., r 3)', HORIZONTAL_MARGIN)); 
+  console.log(centerWithMargin('  (q)uit               - Exit management mode', HORIZONTAL_MARGIN)); 
+  console.log(centerWithMargin('\n' + chalk.dim(message), HORIZONTAL_MARGIN)); 
+  rl.prompt(); 
+}
+
 async function manageWords() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '> ' });
   state.mode = 'manage';
@@ -298,7 +416,7 @@ async function handleCorrectGuess() {
       state.currentWordStreak = 0;
       if (!findNextWordToReview()) {
         clearScreen();
-        console.log(center(chalk.bold.yellow('✨ You completed all due words! ✨')));
+        console.log(centerWithMargin(chalk.bold.yellow('✨ You completed all due words! ✨'), HORIZONTAL_MARGIN));
         showCursor();
         process.exit();
         return;
@@ -313,27 +431,76 @@ async function handleCorrectGuess() {
 
 function handleIncorrectGuess() {
   state.mode = 'error';
-  flash(chalk.red);
-  
-  // THE FIX: Only reset the session state, not the long-term SRS data.
-  // This forces the user to re-try the same word immediately.
   state.userInput = '';
   state.hasStartedTyping = false;
-  state.currentWordStreak = 0; // Reset drill progress for this word.
+  state.currentWordStreak = 0;
+  state.showErrorIndicator = true;
+  flash(chalk.red);
 
-  // After the penalty, re-render the same word.
   setTimeout(() => {
     state.mode = 'typing';
     render();
   }, 700);
 }
 
-function onKeyPress(str, key) { if (key.sequence === '\u0003') { showCursor(); process.exit(); } if (!state.hasStartedTyping) state.hasStartedTyping = true; if (state.mode === 'typing') { const word = state.wordList[state.currentIndex].word; state.userInput += str; if (word.startsWith(state.userInput)) handleCorrectGuess(); else handleIncorrectGuess(); } }
-async function onData(chunk) { if (chunk.length === 1 && chunk[0] === 4) { state.wordList.splice(state.currentIndex, 1); saveWordList(); if (state.wordList.length === 0) { clearScreen(); console.log(center(chalk.yellow('Spelling list is now empty.'))); showCursor(); process.exit(); return; } state.currentIndex = 0; state.userInput = ''; state.hasStartedTyping = false; state.mode = 'typing'; state.currentWordStreak = 0; render(); } }
+function onKeyPress(str, key) {
+  if (key.sequence === '\u0003') {
+    showCursor();
+    process.exit();
+  }
+  if (!state.hasStartedTyping) {
+    if (str.match(/^[a-zA-Z]$/)) { // Only start on a letter press
+      state.hasStartedTyping = true;
+    } else {
+      return; // Ignore non-letter keys at the start
+    }
+  }
+  
+  if (state.mode === 'typing') {
+    if (key.name === 'backspace') {
+      state.userInput = state.userInput.slice(0, -1);
+      render();
+    } else if (str && !key.ctrl && !key.meta) { // Ignore special keys
+      state.userInput += str;
+      if (state.wordList[state.currentIndex].word.startsWith(state.userInput)) {
+        if (state.userInput === state.wordList[state.currentIndex].word) {
+          handleCorrectGuess();
+        } else {
+          render();
+        }
+      } else {
+        handleIncorrectGuess();
+      }
+    }
+  }
+}
+
+async function onData(chunk) {
+  if (chunk.length === 1 && chunk[0] === 4) { // Ctrl+D
+    state.wordList.splice(state.currentIndex, 1);
+    saveWordList();
+    if (state.wordList.length === 0) {
+      clearScreen();
+      console.log(centerWithMargin(chalk.yellow('Spelling list is now empty.'), HORIZONTAL_MARGIN));
+      showCursor();
+      process.exit();
+      return;
+    }
+    state.currentIndex = 0;
+    state.userInput = '';
+    state.hasStartedTyping = false;
+    state.mode = 'typing';
+    state.currentWordStreak = 0;
+    render();
+  }
+}
 
 // --- Main Application Logic ---
 
 async function main() {
+  const initialRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  initialRl.close(); 
+
   await initialize();
 
   if (state.mode === 'manage') {
@@ -342,12 +509,12 @@ async function main() {
   }
 
   if (state.wordList.length === 0) {
-    console.log(center(chalk.yellow('Your spelling list is empty.\nAdd a word with `spell <word>`')));
+    console.log(centerWithMargin(chalk.yellow('Your spelling list is empty.\nAdd a word with `spell <word>`'), HORIZONTAL_MARGIN));
     process.exit(0);
   }
 
   if (!findNextWordToReview()) {
-    console.log(center(chalk.bold.yellow('✨ No words due for review right now! Come back later. ✨')));
+    console.log(centerWithMargin(chalk.bold.yellow('✨ No words due for review right now! Come back later. ✨'), HORIZONTAL_MARGIN));
     process.exit(0);
   }
 
@@ -364,6 +531,6 @@ async function main() {
 // --- Run Application ---
 main().catch(err => {
   showCursor();
-  console.error('\nAn unexpected error occurred:', err);
+  console.error(centerWithMargin('\nAn unexpected error occurred:', HORIZONTAL_MARGIN), err);
   process.exit(1);
 });
