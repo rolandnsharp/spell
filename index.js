@@ -373,9 +373,9 @@ function render(wordOverride = null, colorFn = chalk.white) {
         // Position over the first letter of the word. Column is 1-based.
         cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + 1; 
     } else {
-        // Position at the end of the typed input
-        const typedTextLength = stripAnsi(state.userInput.split('').join(' ')).length; // Spaced input length
-        cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + typedTextLength + 1; 
+        // Position for the *next* character to be typed, after the spaced input
+        const charsTyped = state.userInput.length;
+        cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + 1 + (charsTyped * 2);
     }
 
     process.stdout.write(`\x1B[${cursorRow};${cursorColumn}H`); // Move cursor
