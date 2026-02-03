@@ -1,20 +1,25 @@
 # Spell
 
-A minimalist, high-performance terminal app designed to improve your spelling, typing speed, and vocabulary through spaced repetition.
+A minimalist, high-performance terminal app for mastering spelling, typing, and vocabulary using a science-based learning approach.
 
-![Spell Demo](https://storage.googleapis.com/gemini-marc-misc-shared/2024-05-16_spell-cli-demo.gif)
+![Spell Demo](https-i-imgur-com-21i5j1t-gif)
 
 ## Features
 
--   🧠 **Active Recall:** The word disappears as you start typing, forcing you to recall it from memory.
--   📚 **Built-in Dictionary:** Fetches and displays definitions for words you're practicing.
--   🔁 **Repetition Control:** Configure how many times you must correctly type a word before moving on.
--   ✨ **Minimalist UI:** A clean, centered, distraction-free interface with instant visual feedback.
--   ⌨️ **Keyboard-First:** Designed for touch-typists. No mouse required.
+-   🧠 **Science-Based Learning:** Uses a **Spaced Repetition System (SRS)** to schedule words for review at the perfect time to build robust long-term memory.
+-   💪 **Drill Mode:** Integrates "massed practice" by allowing you to drill words a set number of times (`-r` flag) to build muscle memory before a word's SRS level is advanced.
+-   📚 **Built-in Dictionary:** Automatically fetches and caches definitions for every word you add.
+-   **Smart Definition Censoring:** Prevents spoilers during practice by intelligently censoring the spelling word and its common variations (e.g., `family` and `families`) within the definition.
+-   ✨ **Full Word Management Suite:**
+    -   Add new words individually.
+    -   Bulk import words from a text file (`--import`).
+    -   Interactively list, delete, and reset word progress (`--manage`).
+    -   Safely clear your entire word list (`--clear`).
+-   ⌨️ **Keyboard-First & Minimalist UI:** A clean, centered, distraction-free interface designed for touch-typists.
 
 ## Installation
 
-This project is built to run with [Bun](https://bun.sh/), a fast, all-in-one JavaScript runtime.
+This project is built to run with [Bun](https-bun-sh), a fast, all-in-one JavaScript runtime.
 
 1.  **Link the package for global use:**
     From inside the project directory, run:
@@ -34,94 +39,80 @@ You're all set!
 
 ### Start a Practice Session
 
-To begin a spelling session with your word list, simply run:
+To begin a spelling session, simply run:
 ```bash
 spell
 ```
+The app will automatically select the words most urgently in need of review based on the Spaced Repetition algorithm.
 
-### Add a New Word
+### Managing Your Word List
 
-To add a new word to your spelling list:
+**Add a New Word (or Reset an Existing One):**
+If the word is new, it will be added. If it already exists, its learning progress will be reset.
 ```bash
-spell <word>
-
-# Example:
 spell conscientious
 ```
 
-### Set Repetition Count
-
-To specify how many times you must correctly spell each word before it's considered "mastered" for the session, use the `-r` or `--repeat` flag:
+**Bulk Import Words from a File:**
+Create a simple text file with one word per line and import it.
 ```bash
-# Practice each word 3 times
+spell --import ~/path/to/my-words.txt
+```
+
+**Interactive Word Manager:**
+For a user-friendly way to list, delete, or reset word progress, use the `--manage` or `-m` flag:
+```bash
+spell --manage
+```
+This mode provides a numbered list and simple commands (`d <number>`, `r <number>`, `q`) to manage your words.
+
+**Clear Your Entire List:**
+To permanently delete all words (with a confirmation prompt):
+```bash
+spell --clear
+```
+
+### Customizing Your Practice
+
+**Drill Words with the Repeat Flag:**
+To drill a word multiple times before its review level increases, use the `-r` or `--repeat` flag. This is highly recommended for building muscle memory.
+```bash
+# You must spell each word 3 times in a row to master it for the session
 spell -r 3
 ```
 
-### In-Session Controls
+### Help Screen
 
--   `Ctrl+D` - **Delete Current Word:** If you've mastered a word and want to remove it from your list permanently, press `Ctrl+D`.
+To view a full list of commands at any time:
+```bash
+spell --help
+```
+
+### In-Session Controls (Practice Mode)
+
+-   `Ctrl+D` - **Delete Current Word:** Permanently removes the current word from your list.
 -   `Ctrl+C` - **Exit:** Exit the practice session at any time.
 
-## How It Works
+## The Science of Learning
 
-The application stores your word list in a file located at `~/.spell/spellingList.json`. This keeps your personal data separate from the application's source code.
+This app combines two scientifically-backed learning methods to maximize memory retention and typing fluency.
 
-### Definition Caching
+#### 1. Spaced Repetition (for Long-Term Memory)
 
-To improve performance and avoid unnecessary requests to the dictionary API, `spell` caches definitions locally.
+The core of the app is a **Spaced Repetition System (SRS)**, a learning technique based on the "forgetting curve." The principle is simple: the best time to review information is right before you're about to forget it.
 
--   **On First Run:** When you first add a word, the app fetches its definition from an online API and saves it to the `spellingList.json` file.
--   **Subsequent Runs:** For any word already in your list, the definition is read instantly from the local file, making the app fast and enabling offline use.
--   **Automatic Migration:** If you have an old `spellingList.txt` file, the app will automatically migrate it to the new JSON format, fetching and caching all definitions in the process.
+-   **How it's implemented:** Every word in your `spellingList.json` file has a `level` and a `nextReviewDate`. When you spell a word correctly, its level increases, and the `nextReviewDate` is pushed further into the future (from 1 day to 3, 7, 16, and so on, capped at 180 days). If you misspell a word, its level is reset to 1, and it will be scheduled for review the very next day.
+-   **The Result:** You spend your time efficiently, focusing on the words you struggle with while practicing the words you know well just often enough to keep them locked in long-term memory.
 
-### Smart Definition Censoring
+#### 2. Massed Practice / Drilling (for Muscle Memory)
 
-To ensure the game is a true test of recall, the definition displayed during a practice session has the spelling word (and its variations) censored.
+While SRS is for long-term retention, drilling (or "massed practice") is essential for building short-term muscle memory. The `-r` flag activates this mode.
 
-For example, if the word is **"family"**, the definition will be modified to hide spoilers:
-- A group of one or more parents and their children living together as a unit. -> A group of one or more parents and their children living together as a unit.
-- All the descendants of a common ancestor. -> All the descendants of a common ancestor.
+-   **How it's implemented:** To advance a word's SRS `level`, you must first spell it correctly `n` times in a row, as specified by the `-r` flag.
+-   **The Result:** This acts as a mastery gate. It ensures you have a firm, immediate grasp and the correct "feel" for typing a word before the SRS system trusts you to remember it over the long term.
 
-This is achieved using a stemming heuristic that identifies the root of the word (e.g., `famil-`) and censors any word in the definition that starts with that root, such as `family` or `families`.
+## Data & Syncing
 
-## Future Enhancements
+Your learning progress is stored locally at `~/.spell/spellingList.json`.
 
-Here are some recommendations to take this program to the next level:
-
-### Core Tooling Choices
-
-*   `readline`: This is the built-in, official Node.js module for handling user input from the terminal. It's the perfect, lightweight tool for capturing raw keypresses.
-*   `chalk`: The industry-standard library for terminal text styling. While Bun has `Bun.style`, `chalk` is a robust and widely used choice.
-
-### Feature & UX Enhancements
-
-*   **Display Definitions:** Integrate the already-fetched word definitions into the display during practice sessions for enhanced learning.
-*   **Add a Help Screen:** Implement a dedicated help screen (e.g., triggered by `spell --help`) to guide users on commands like adding/deleting words and setting repetition counts.
-*   **More Word Management Commands:**
-    *   `spell --list`: Display all words in the spelling list.
-    *   `spell --clear`: Clear the entire spelling list (with user confirmation).
-
-### Implement Spaced Repetition
-
-*   Transition the current linear word quizzing to a spaced repetition algorithm. This involves showing words you struggle with more frequently, optimizing the learning process.
-
-### Evolve Your Data Storage
-
-*   **Switch to JSON:** Migrate from `spellingList.txt` to `spellingList.json` to store richer data per word, such as:
-    ```json
-    [
-      {
-        "word": "conscientious",
-        "correct": 5,
-        "incorrect": 1,
-        "lastPracticed": "2026-02-03T10:00:00.000Z"
-      },
-      {
-        "word": "ubiquitous",
-        "correct": 2,
-        "incorrect": 3,
-        "lastPracticed": "2026-02-03T09:00:00.000Z"
-      }
-    ]
-    ```
-    This richer data structure is essential for implementing spaced repetition and other advanced features.
+Since this is a simple file in your home directory, you can easily sync it across multiple machines using a version-controlled "dotfiles" repository. By putting your `~/.spell` directory under Git, you can keep your learning progress synchronized across all your development environments.
