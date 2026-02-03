@@ -1,15 +1,20 @@
 {
-  "name": "spell",
+  "name": "@rolandnsharp/spell",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "bin": {
-  "spell": "./index.js"
+    "spell": "./index.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "node-fetch": "^3.3.2"
+  }
 }

@@ -36,5 +36,5 @@ build/
 *.out
 *.app
 
-# Local test data
-spellingList.txt
+# NPM lock file (Bun is preferred)
+package-lock.json
