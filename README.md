@@ -25,14 +25,17 @@ Unlike traditional spaced repetition systems like Anki, **Spell focuses on build
 
 This project is built to run with [Bun](https-bun-sh), a fast, all-in-one JavaScript runtime.
 
-1.  **Link the package for global use:**
-    From inside the project directory, run:
+1.  **Install the package globally:**
+    Using Bun:
     ```bash
-    bun link --name @rolandnsharp/spell
+    bun add -g @rolandnsharp/spell
     ```
-    This will make the `spell` command available globally on your system.
+    Or, using npm:
+    ```bash
+    npm install -g @rolandnsharp/spell
+    ```
 
-2.  **Install dependencies:**
+2.  **Install local dependencies (if you're contributing or running from source):**
     ```bash
     bun install
     ```
