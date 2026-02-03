@@ -44,22 +44,45 @@ const DEFINITION_INNER_PADDING = 4; // Additional padding *within* the definitio
 /**
  * Centers a string of text within a given width, with optional horizontal margins.
  * @param {string} text - The text to center.
- * @param {number} [margin=0] - The horizontal margin to apply on both sides.
+ * @param {number} [outerMargin=0] - The horizontal margin to apply on both sides *outside* the content.
  * @returns {string} The padded and centered text.
  */
-function centerWithMargin(text, margin = 0) {
+function centerWithMargin(text, outerMargin = 0) {
   const totalTerminalWidth = process.stdout.columns || 80;
-  const effectiveContentWidth = totalTerminalWidth - (margin * 2);
+  const availableContentWidth = totalTerminalWidth - (outerMargin * 2);
   
   return text.split('\n').map(line => {
-    // Use stripAnsi to get the true length of the visible text
     const strippedLineLength = stripAnsi(line).length;
-    // Calculate padding needed to center *within the effective content width*
-    const pad = Math.floor((effectiveContentWidth - strippedLineLength) / 2);
-    // Prepend the total margin (outer + inner centering pad) to the line
-    return ' '.repeat(margin + Math.max(0, pad)) + line;
+    const pad = Math.floor((availableContentWidth - strippedLineLength) / 2);
+    return ' '.repeat(outerMargin + Math.max(0, pad)) + line;
   }).join('\n');
 }
+
+/**
+ * Word-wraps text to fit within a given width.
+ * @param {string} text - The raw text to wrap.
+ * @param {number} width - The maximum width for each line.
+ * @returns {string} The wrapped text.
+ */
+function wrapText(text, width) {
+    let wrappedLines = [];
+    let currentLine = '';
+    const words = text.split(/(\s+)/); // Split by whitespace, keeping delimiters
+
+    for (const word of words) {
+        const wordLength = stripAnsi(word).length;
+        if (stripAnsi(currentLine + word).length > width && stripAnsi(currentLine).length > 0) {
+            wrappedLines.push(currentLine.trim());
+            currentLine = word.trim();
+        } else {
+            currentLine += word;
+        }
+    }
+    if (stripAnsi(currentLine).length > 0) wrappedLines.push(currentLine.trim());
+
+    return wrappedLines.join('\n');
+}
+
 
 // --- Help Screen ---
 
@@ -158,7 +181,7 @@ async function migrateTxtToJson(txtFilepath, jsonFilepath) {
   console.log(chalk.bold.green('Migration complete! Old file renamed to `spellingList.txt.bak`.'));
 }
 
-// No global readline instance here. Each interactive mode will manage its own.
+const globalRl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
 async function initialize() {
   const args = process.argv.slice(2);
@@ -207,10 +230,9 @@ async function initialize() {
 // --- Main Modes ---
 
 async function clearList() {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   console.log(chalk.bold.red('This will permanently delete all words from your spelling list.'));
   return new Promise(resolve => {
-    rl.question('Are you sure? (y/N) ', answer => {
+    globalRl.question('Are you sure? (y/N) ', answer => {
       if (answer.toLowerCase() === 'y') {
         state.wordList = [];
         saveWordList();
@@ -218,7 +240,7 @@ async function clearList() {
       } else {
         console.log(chalk.yellow('Operation cancelled.'));
       }
-      rl.close();
+      globalRl.close();
       resolve();
       process.exit(0);
     });
@@ -270,18 +292,23 @@ function render(wordOverride = null, colorFn = chalk.white) {
   const censoredDefinition = censorWordInDefinition(currentWord.word, currentWord.definition);
 
   clearScreen();
-  hideCursor();
+  
+  // Build entire output string first
+  let outputBuffer = '';
 
-  // Persistent Header (Correct/Incorrect messages)
+  // Persistent Header (Correct/Incorrect/Onboarding messages)
+  let headerMessage = '';
   if (state.showSuccessIndicator) {
-    console.log(centerWithMargin(chalk.green('✔ Correct!'), HORIZONTAL_MARGIN));
+    headerMessage = chalk.green('✔ Correct!');
     state.showSuccessIndicator = false;
   } else if (state.showErrorIndicator) {
-    console.log(centerWithMargin(chalk.red('✖ Incorrect!'), HORIZONTAL_MARGIN));
+    headerMessage = chalk.red('✖ Incorrect!');
     state.showErrorIndicator = false;
-  } else {
-    console.log(centerWithMargin('', HORIZONTAL_MARGIN)); // Reserve the line to prevent jumping
+  } else if (state.mode === 'typing' && !state.hasStartedTyping) {
+    headerMessage = chalk.dim('Start typing the current spelling word!');
   }
+  outputBuffer += centerWithMargin(headerMessage, HORIZONTAL_MARGIN) + '\n';
+  outputBuffer += '\n'; // Spacer line (Row 2)
 
   // Dashboard - Boxed Word Display
   const wordColorFn = (state.mode === 'error') ? chalk.red : colorFn;
@@ -291,57 +318,78 @@ function render(wordOverride = null, colorFn = chalk.white) {
 
   // Determine the widest line for box drawing (stripping ANSI codes for accurate length)
   const lines = [wordLine, levelLine, streakLine];
+  const wordLineStripped = stripAnsi(lines[0]);
+  const displayWordStripped = stripAnsi(currentWord.word.split('').join(' ')); 
+  const wordTextVisualOffset = wordLineStripped.indexOf(displayWordStripped);
   const maxWidth = Math.max(...lines.map(line => stripAnsi(line).length));
-  // The box width is the widest line content + 2 for internal padding + 2 for the vertical borders
-  const boxInnerContentWidth = maxWidth + 2;
+  const boxInnerContentWidth = maxWidth + 2; // +2 for internal padding
   
   // Build the un-centered box string
   let boxedContent = '';
   boxedContent += chalk.gray('╔') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╗\n');
   lines.forEach(line => {
-    // Pad each line to fill the box inner content width
     const paddingNeeded = boxInnerContentWidth - stripAnsi(line).length;
     boxedContent += chalk.gray('║') + line + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
   });
   boxedContent += chalk.gray('╚') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╝');
   
-  console.log(centerWithMargin(boxedContent, HORIZONTAL_MARGIN));
+  outputBuffer += centerWithMargin(boxedContent, HORIZONTAL_MARGIN) + '\n';
 
   // Definition
-  console.log(); // Spacer
-  console.log(centerWithMargin(chalk.dim('Definition:'), HORIZONTAL_MARGIN));
+  outputBuffer += '\n'; // Spacer (after box)
+  outputBuffer += centerWithMargin(chalk.dim('Definition:'), HORIZONTAL_MARGIN) + '\n';
   
-  // NEW: Manually apply inner padding to each line of the definition, then center the block
-  const definitionLines = censoredDefinition.split('\n');
-  const definitionBlockWithInnerPadding = definitionLines.map(line => {
+  const totalTerminalWidth = process.stdout.columns || 80;
+  const definitionContentWidth = totalTerminalWidth - (HORIZONTAL_MARGIN * 2) - (DEFINITION_INNER_PADDING * 2);
+  const wrappedDefinition = wrapText(censoredDefinition, definitionContentWidth);
+
+  const paddedDefinitionBlock = wrappedDefinition.split('\n').map(line => {
+    const strippedLength = stripAnsi(line).length;
+    const paddingLeft = ' '.repeat(DEFINITION_INNER_PADDING + Math.floor((definitionContentWidth - strippedLength) / 2));
+    const paddingRight = ' '.repeat(DEFINITION_INNER_PADDING + Math.ceil((definitionContentWidth - strippedLength) / 2));
+    return paddingLeft + line + paddingRight;
+  }).join('\n');
+
+  outputBuffer += chalk.dim(paddedDefinitionBlock);
+
+  // Finally, write the entire buffer to stdout
+  process.stdout.write(outputBuffer);
+
+  // Cursor logic (centralized and robust)
+  if (state.mode === 'typing') {
     const totalTerminalWidth = process.stdout.columns || 80;
-    // Calculate available width for definition text *after* outer margin and inner padding
-    const availableWidth = totalTerminalWidth - (HORIZONTAL_MARGIN * 2) - (DEFINITION_INNER_PADDING * 2);
+    const boxVisualWidth = stripAnsi(boxedContent.split('\n')[0]).length; // Get width of top box border
+    // Calculate the left edge of the box on the screen, relative to the terminal's left edge.
+    const boxLeftEdgeOnScreen = Math.floor((totalTerminalWidth - boxVisualWidth) / 2);
     
-    // Wrap text within the available width
-    let wrappedLines = [];
-    let currentLine = '';
-    const words = line.split(' ');
-    for (const word of words) {
-      if (stripAnsi(currentLine + word).length + 1 > availableWidth && currentLine.length > 0) {
-        wrappedLines.push(currentLine);
-        currentLine = word; 
-      } else {
-        currentLine += (currentLine.length > 0 ? ' ' : '') + word;
-      }
+    // The 'Word:' line is the second line (index 1) of the `linesContent` array used to build `boxedContent`.
+    const wordTextVisualOffset = stripAnsi(`${chalk.dim('Word:')}   `).length; // Robustly get prefix length
+
+    // Cursor row: Header message (1 line) + Spacer (1 line) + Box top border (1 line) = 3 lines before the wordLine. So row 4.
+    const cursorRow = 4;
+
+    let cursorColumn;
+    if (!state.hasStartedTyping) {
+        // Position over the first letter of the word. Column is 1-based.
+        cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + 1; 
+    } else {
+        // Position at the end of the typed input
+        const typedTextLength = stripAnsi(state.userInput.split('').join(' ')).length; // Spaced input length
+        cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + typedTextLength + 1; 
     }
-    if (currentLine.length > 0) wrappedLines.push(currentLine);
 
-    // Pad and center each wrapped line
-    return wrappedLines.map(wrappedLine => {
-      const strippedLength = stripAnsi(wrappedLine).length;
-      const leftPad = ' '.repeat(DEFINITION_INNER_PADDING + Math.floor((availableWidth - strippedLength) / 2));
-      const rightPad = ' '.repeat(DEFINITION_INNER_PADDING + Math.ceil((availableWidth - strippedLength) / 2));
-      return leftPad + wrappedLine + rightPad;
-    }).join('\n');
-  }).filter(Boolean).join('\n'); // Filter(Boolean) removes empty lines
-
-  console.log(chalk.dim(definitionBlockWithInnerPadding));
+    process.stdout.write(`\x1B[${cursorRow};${cursorColumn}H`); // Move cursor
+    
+    if (!state.hasStartedTyping) {
+      process.stdout.write('\x1B[?12h'); // Start blinking
+      showCursor(); 
+    } else {
+      process.stdout.write('\x1B[?12l'); // Stop blinking
+      showCursor(); 
+    }
+  } else {
+    hideCursor(); 
+  }
 }
 
 function flash(colorFn) {
@@ -350,10 +398,10 @@ function flash(colorFn) {
 
 function renderManageScreen(rl, message = '') { 
   clearScreen(); 
-  console.log(centerWithMargin(chalk.bold.yellow('\n-- Interactive Word Manager --'), HORIZONTAL_MARGIN)); 
-  console.log(centerWithMargin(chalk.gray('------------------------------'), HORIZONTAL_MARGIN)); 
+  process.stdout.write(centerWithMargin(chalk.bold.yellow('\n-- Interactive Word Manager --'), HORIZONTAL_MARGIN) + '\n'); 
+  process.stdout.write(centerWithMargin(chalk.gray('------------------------------'), HORIZONTAL_MARGIN) + '\n'); 
   if (state.wordList.length === 0) {
-    console.log(centerWithMargin(chalk.yellow('Your spelling list is empty.'), HORIZONTAL_MARGIN)); 
+    process.stdout.write(centerWithMargin(chalk.yellow('Your spelling list is empty.'), HORIZONTAL_MARGIN) + '\n'); 
   } else {
     state.wordList.forEach((wordData, index) => {
       const nextReview = new Date(wordData.nextReviewDate);
@@ -365,15 +413,15 @@ function renderManageScreen(rl, message = '') {
         const diffDays = Math.ceil(Math.abs(nextReview - now) / (1000 * 60 * 60 * 24));
         status = chalk.green(`(Level ${wordData.level}, in ${diffDays} days)`);
       }
-      console.log(centerWithMargin(`  ${index + 1}. ${wordData.word} ${status}`, HORIZONTAL_MARGIN)); 
+      process.stdout.write(centerWithMargin(`  ${index + 1}. ${wordData.word} ${status}`, HORIZONTAL_MARGIN) + '\n'); 
     }); 
   }
-  console.log(centerWithMargin('\n' + chalk.bold('Actions:'), HORIZONTAL_MARGIN)); 
-  console.log(centerWithMargin('  (d)elete <number>    - Delete a word (e.g., d 2)', HORIZONTAL_MARGIN)); 
-  console.log(centerWithMargin('  (r)eset <number>     - Reset a word\'s progress (e.g., r 3)', HORIZONTAL_MARGIN)); 
-  console.log(centerWithMargin('  (q)uit               - Exit management mode', HORIZONTAL_MARGIN)); 
-  console.log(centerWithMargin('\n' + chalk.dim(message), HORIZONTAL_MARGIN)); 
-  rl.prompt(); 
+  process.stdout.write(centerWithMargin('\n' + chalk.bold('Actions:'), HORIZONTAL_MARGIN) + '\n'); 
+  process.stdout.write(centerWithMargin('  (d)elete <number>    - Delete a word (e.g., d 2)', HORIZONTAL_MARGIN) + '\n'); 
+  process.stdout.write(centerWithMargin('  (r)eset <number>     - Reset a word\'s progress (e.g., r 3)', HORIZONTAL_MARGIN) + '\n'); 
+  process.stdout.write(centerWithMargin('  (q)uit               - Exit management mode', HORIZONTAL_MARGIN) + '\n'); 
+  process.stdout.write(centerWithMargin('\n' + chalk.dim(message), HORIZONTAL_MARGIN) + '\n'); 
+  // Do not call rl.prompt here, it is called after renderManageScreen.
 }
 
 async function manageWords() {
@@ -416,7 +464,7 @@ async function handleCorrectGuess() {
       state.currentWordStreak = 0;
       if (!findNextWordToReview()) {
         clearScreen();
-        console.log(centerWithMargin(chalk.bold.yellow('✨ You completed all due words! ✨'), HORIZONTAL_MARGIN));
+        process.stdout.write(centerWithMargin(chalk.bold.yellow('✨ You completed all due words! ✨'), HORIZONTAL_MARGIN) + '\n');
         showCursor();
         process.exit();
         return;
@@ -481,7 +529,7 @@ async function onData(chunk) {
     saveWordList();
     if (state.wordList.length === 0) {
       clearScreen();
-      console.log(centerWithMargin(chalk.yellow('Spelling list is now empty.'), HORIZONTAL_MARGIN));
+      process.stdout.write(centerWithMargin(chalk.yellow('Spelling list is now empty.'), HORIZONTAL_MARGIN) + '\n');
       showCursor();
       process.exit();
       return;
@@ -498,6 +546,8 @@ async function onData(chunk) {
 // --- Main Application Logic ---
 
 async function main() {
+  // This initial call to createInterface and then close it ensures process.stdin is in normal mode
+  // if it's a TTY, preventing interference with raw mode later if needed.
   const initialRl = readline.createInterface({ input: process.stdin, output: process.stdout });
   initialRl.close(); 
 
@@ -509,12 +559,12 @@ async function main() {
   }
 
   if (state.wordList.length === 0) {
-    console.log(centerWithMargin(chalk.yellow('Your spelling list is empty.\nAdd a word with `spell <word>`'), HORIZONTAL_MARGIN));
+    process.stdout.write(centerWithMargin(chalk.yellow('Your spelling list is empty.\nAdd a word with `spell <word>`'), HORIZONTAL_MARGIN) + '\n');
     process.exit(0);
   }
 
   if (!findNextWordToReview()) {
-    console.log(centerWithMargin(chalk.bold.yellow('✨ No words due for review right now! Come back later. ✨'), HORIZONTAL_MARGIN));
+    process.stdout.write(centerWithMargin(chalk.bold.yellow('✨ No words due for review right now! Come back later. ✨'), HORIZONTAL_MARGIN) + '\n');
     process.exit(0);
   }
 
@@ -531,6 +581,6 @@ async function main() {
 // --- Run Application ---
 main().catch(err => {
   showCursor();
-  console.error(centerWithMargin('\nAn unexpected error occurred:', HORIZONTAL_MARGIN), err);
+  console.error(centerWithMargin('\nAn unexpected error occurred:', HORIZONTAL_MARGIN), err) + '\n';
   process.exit(1);
 });
