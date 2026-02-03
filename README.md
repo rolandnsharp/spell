@@ -2,12 +2,14 @@
 
 A minimalist, high-performance terminal app for mastering spelling, typing, and vocabulary using a science-based learning approach.
 
+Unlike traditional spaced repetition systems like Anki, **Spell focuses on building muscle memory for touch-typing words correctly.** It drills you on actively typing the word, not just passively recognizing it. This targeted approach significantly enhances typing fluency and spelling accuracy, making it ideal for those who want to internalize words through physical repetition.
+
 ![Spell Demo](https-i-imgur-com-21i5j1t-gif)
 
 ## Features
 
 -   🧠 **Science-Based Learning:** Uses a **Spaced Repetition System (SRS)** to schedule words for review at the perfect time to build robust long-term memory.
--   💪 **Drill Mode:** Integrates "massed practice" by allowing you to drill words a set number of times (`-r` flag) to build muscle memory before a word's SRS level is advanced.
+-   💪 **Drill Mode:** Integrates "massed practice" by allowing you to drill words a set number of times (`-r` flag, defaults to 3) to build muscle memory before a word's SRS level is advanced.
 -   📚 **Built-in Dictionary:** Automatically fetches and caches definitions for every word you add.
 -   **Smart Definition Censoring:** Prevents spoilers during practice by intelligently censoring the spelling word and its common variations (e.g., `family` and `families`) within the definition.
 -   ✨ **Full Word Management Suite:**
@@ -43,7 +45,7 @@ To begin a spelling session, simply run:
 ```bash
 spell
 ```
-The app will automatically select the words most urgently in need of review based on the Spaced Repetition algorithm.
+The app will automatically select the words most urgently in need of review based on the Spaced Repetition algorithm and will use a default drill count of 3.
 
 ### Managing Your Word List
 
@@ -67,7 +69,7 @@ spell --manage
 This mode provides a numbered list and simple commands (`d <number>`, `r <number>`, `q`) to manage your words.
 
 **Clear Your Entire List:**
-To permanently delete all words (with a confirmation prompt):
+To permanently delete all words (with a confirmation prompt), use the `--clear` or `-c` flag:
 ```bash
 spell --clear
 ```
@@ -75,11 +77,20 @@ spell --clear
 ### Customizing Your Practice
 
 **Drill Words with the Repeat Flag:**
-To drill a word multiple times before its review level increases, use the `-r` or `--repeat` flag. This is highly recommended for building muscle memory.
+To drill a word multiple times before its review level increases, use the `--repeat` or `-r` flag.
 ```bash
-# You must spell each word 3 times in a row to master it for the session
-spell -r 3
+# You must spell each word 5 times in a row to master it for the session
+spell -r 5
 ```
+
+**Power User Tip: Setting a Permanent Default**
+If you prefer a different default drill count, you can create a shell alias. Add the following line to your shell's configuration file (e.g., `~/.bashrc`, `~/.zshrc`):
+
+```bash
+# Sets the default drill count to 5
+alias spell='spell -r 5'
+```
+This is the standard and most flexible way to customize the behavior of any command-line tool.
 
 ### Help Screen
 
