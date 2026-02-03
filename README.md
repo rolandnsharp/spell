@@ -1,8 +1,8 @@
-# Spell CLI
+# Spell
 
 A minimalist, high-performance terminal app designed to improve your spelling, typing speed, and vocabulary through spaced repetition.
 
-![Spell CLI Demo](https://storage.googleapis.com/gemini-marc-misc-shared/2024-05-16_spell-cli-demo.gif)
+![Spell Demo](https://storage.googleapis.com/gemini-marc-misc-shared/2024-05-16_spell-cli-demo.gif)
 
 ## Features
 
@@ -64,7 +64,25 @@ spell -r 3
 
 ## How It Works
 
-The application maintains a simple text file of your words at `~/.spell/spellingList.txt`. This keeps your personal word list separate from the application's source code, allowing you to update the app without losing your data.
+The application stores your word list in a file located at `~/.spell/spellingList.json`. This keeps your personal data separate from the application's source code.
+
+### Definition Caching
+
+To improve performance and avoid unnecessary requests to the dictionary API, `spell` caches definitions locally.
+
+-   **On First Run:** When you first add a word, the app fetches its definition from an online API and saves it to the `spellingList.json` file.
+-   **Subsequent Runs:** For any word already in your list, the definition is read instantly from the local file, making the app fast and enabling offline use.
+-   **Automatic Migration:** If you have an old `spellingList.txt` file, the app will automatically migrate it to the new JSON format, fetching and caching all definitions in the process.
+
+### Smart Definition Censoring
+
+To ensure the game is a true test of recall, the definition displayed during a practice session has the spelling word (and its variations) censored.
+
+For example, if the word is **"family"**, the definition will be modified to hide spoilers:
+- A group of one or more parents and their children living together as a unit. -> A group of one or more parents and their children living together as a unit.
+- All the descendants of a common ancestor. -> All the descendants of a common ancestor.
+
+This is achieved using a stemming heuristic that identifies the root of the word (e.g., `famil-`) and censors any word in the definition that starts with that root, such as `family` or `families`.
 
 ## Future Enhancements
 

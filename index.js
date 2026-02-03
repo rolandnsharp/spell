@@ -11,14 +11,14 @@ import fetch from 'node-fetch';
 
 /**
  * Application state.
- * @property {string[]} wordList - The list of words to practice.
+ * @property {{word: string, definition: string}[]} wordList - The list of word objects to practice.
  * @property {number} currentIndex - The index of the current word in the list.
  * @property {string} userInput - The user's current typed input.
  * @property {boolean} hasStartedTyping - Whether the user has started typing the current word.
  * @property {'typing'|'success'|'error'} mode - The current state of the typing game.
  * @property {number} correctStreak - The number of consecutive correct spellings for the current word.
  * @property {number} repeatCount - The number of times a word must be spelled correctly to advance.
- * @property {string} filepath - The absolute path to the spelling list file.
+ * @property {string} jsonFilepath - The absolute path to the spelling list JSON file.
  */
 const state = {
   wordList: [],
@@ -28,41 +28,8 @@ const state = {
   mode: 'typing',
   correctStreak: 0,
   repeatCount: 1,
-  filepath: ''
+  jsonFilepath: ''
 };
-
-/**
- * Initializes the application, parses command-line arguments, and loads the word list.
- */
-function initialize() {
-  // --- Argument Parsing ---
-  const args = process.argv.slice(2);
-  const repeatIndex = args.findIndex(arg => arg === '-r' || arg === '--repeat');
-  state.repeatCount = (repeatIndex !== -1 && args[repeatIndex + 1]) ? parseInt(args[repeatIndex + 1], 10) : 1;
-  const inputArg = args.find(arg => !arg.startsWith('-') && isNaN(arg));
-  const wordToAdd = inputArg && !inputArg.endsWith('.txt') ? inputArg : null;
-
-  // --- File & Directory Setup ---
-  const appDir = path.join(os.homedir(), '.spell');
-  if (!fs.existsSync(appDir)) fs.mkdirSync(appDir);
-  const filename = 'spellingList.txt';
-  state.filepath = path.join(appDir, filename);
-
-  if (!fs.existsSync(state.filepath)) fs.writeFileSync(state.filepath, '');
-
-  // If a word is passed as an argument, add it to the list and exit.
-  if (wordToAdd) {
-    fs.appendFileSync(state.filepath, `\n${wordToAdd}`);
-    console.log(chalk.green(`Added "${wordToAdd}" to the spelling list.`));
-    process.exit(0);
-  }
-
-  // --- Load Word List ---
-  state.wordList = fs.readFileSync(state.filepath, 'utf8')
-    .split('\n')
-    .map(w => w.trim())
-    .filter(w => w.length > 0);
-}
 
 // --- API & Utilities ---
 
@@ -74,12 +41,74 @@ function initialize() {
 async function getDefinition(word) {
   try {
     const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
-    if (!res.ok) return chalk.gray('(no definition found)');
+    if (!res.ok) return '(no definition found)';
     const data = await res.json();
     const def = data[0]?.meanings[0]?.definitions[0]?.definition;
-    return def || chalk.gray('(no definition found)');
+    return def || '(no definition found)';
   } catch (error) {
-    return chalk.red('(could not fetch definition)');
+    return '(could not fetch definition)';
+  }
+}
+
+/**
+ * Migrates from spellingList.txt to the new JSON format.
+ * @param {string} txtFilepath - The path to the old txt file.
+ * @param {string} jsonFilepath - The path to the new json file.
+ */
+async function migrateTxtToJson(txtFilepath, jsonFilepath) {
+  console.log(chalk.yellow('Old `spellingList.txt` found. Migrating to new JSON format...'));
+  const oldWords = fs.readFileSync(txtFilepath, 'utf8')
+    .split('\n')
+    .map(w => w.trim())
+    .filter(w => w.length > 0);
+
+  const newWordList = [];
+  for (const word of oldWords) {
+    process.stdout.write(`Fetching definition for "${word}"... `);
+    const definition = await getDefinition(word);
+    newWordList.push({ word, definition });
+    console.log(chalk.green('Done.'));
+  }
+
+  fs.writeFileSync(jsonFilepath, JSON.stringify(newWordList, null, 2));
+  fs.renameSync(txtFilepath, `${txtFilepath}.bak`);
+  console.log(chalk.bold.green('Migration complete! The old file has been renamed to `spellingList.txt.bak`.'));
+  state.wordList = newWordList;
+}
+
+/**
+ * Initializes the application, parses arguments, and handles data loading/migration.
+ */
+async function initialize() {
+  const args = process.argv.slice(2);
+  const repeatIndex = args.findIndex(arg => arg === '-r' || arg === '--repeat');
+  state.repeatCount = (repeatIndex !== -1 && args[repeatIndex + 1]) ? parseInt(args[repeatIndex + 1], 10) : 1;
+  const wordToAdd = args.find(arg => !arg.startsWith('-') && isNaN(arg));
+
+  const appDir = path.join(os.homedir(), '.spell');
+  if (!fs.existsSync(appDir)) fs.mkdirSync(appDir);
+  
+  state.jsonFilepath = path.join(appDir, 'spellingList.json');
+  const oldTxtFilepath = path.join(appDir, 'spellingList.txt');
+
+  // Handle migration if new file doesn't exist but old one does
+  if (!fs.existsSync(state.jsonFilepath) && fs.existsSync(oldTxtFilepath)) {
+    await migrateTxtToJson(oldTxtFilepath, state.jsonFilepath);
+  } else if (fs.existsSync(state.jsonFilepath)) {
+    const fileContent = fs.readFileSync(state.jsonFilepath, 'utf8');
+    state.wordList = fileContent ? JSON.parse(fileContent) : [];
+  } else {
+    // Create an empty JSON file if nothing exists
+    fs.writeFileSync(state.jsonFilepath, '[]');
+  }
+
+  if (wordToAdd) {
+    console.log(`Adding "${wordToAdd}" to the list...`);
+    const definition = await getDefinition(wordToAdd);
+    state.wordList.push({ word: wordToAdd, definition });
+    fs.writeFileSync(state.jsonFilepath, JSON.stringify(state.wordList, null, 2));
+    console.log(chalk.green('Done.'));
+    process.exit(0);
   }
 }
 
@@ -99,7 +128,32 @@ function center(text) {
 // --- UI & Rendering ---
 
 function hideCursor() { process.stdout.write('\x1B[?25l'); }
-function showCursor() { process.stdout.write('\x1B[?25h'); }
+function showCursor() { process.stdout.write('\x1B?25h'); }
+
+/**
+ * Censors the spelling word and its variations within its definition.
+ * Replaces the word and its simple plural/derived forms with asterisks.
+ * @param {string} word - The word to censor.
+ * @param {string} definition - The definition string.
+ * @returns {string} The censored definition.
+ */
+function censorWordInDefinition(word, definition) {
+  let root = word;
+  // Heuristic for common word variations
+  if (word.length > 4 && word.endsWith('y')) {
+    root = word.slice(0, -1); // e.g., 'family' -> 'famil'
+  } else if (word.length > 4 && word.endsWith('e')) {
+    root = word.slice(0, -1); // e.g., 'accommodate' -> 'accommodat'
+  }
+  // Add more heuristics as needed
+
+  // Regex to find any whole word starting with the root, case-insensitive
+  // \b ensures we match whole words, \w* allows for suffixes like 'ies', 'ing', 'tion', etc.
+  const regex = new RegExp(`\\b${root}\\w*\\b`, 'gi');
+  
+  return definition.replace(regex, match => '*'.repeat(match.length));
+}
+
 
 /**
  * Clears the screen and re-renders the UI based on the current state.
@@ -107,21 +161,26 @@ function showCursor() { process.stdout.write('\x1B[?25h'); }
  * @param {function} [colorFn=chalk.white] - A chalk function to color the output.
  */
 function render(wordOverride = null, colorFn = chalk.white) {
-  const word = state.wordList[state.currentIndex];
-  let displayWord;
+  const currentWord = state.wordList[state.currentIndex];
+  if (!currentWord) return; // Don't render if list is empty
 
+  let displayWord;
   if (wordOverride !== null) {
     displayWord = wordOverride;
   } else if (!state.hasStartedTyping) {
-    displayWord = word;
+    displayWord = currentWord.word;
   } else {
-    const blanks = ' '.repeat(word.length - state.userInput.length);
+    const blanks = ' '.repeat(currentWord.word.length - state.userInput.length);
     displayWord = state.userInput + blanks;
   }
 
+  const censoredDefinition = censorWordInDefinition(currentWord.word, currentWord.definition);
+
   process.stdout.write('\x1Bc'); // Clears the terminal screen
   hideCursor();
-  console.log('\n\n\n\n');
+  console.log('\n\n');
+  console.log(center(chalk.dim(censoredDefinition)));
+  console.log('\n\n');
   console.log(center(colorFn(displayWord)));
 }
 
@@ -130,35 +189,29 @@ function render(wordOverride = null, colorFn = chalk.white) {
  * @param {function} colorFn - A chalk function to color the word.
  */
 function flash(colorFn) {
-  const word = state.wordList[state.currentIndex];
+  const word = state.wordList[state.currentIndex].word;
   render(word, colorFn);
 }
 
 
 // --- Event Handlers ---
 
-/**
- * Handles a correct character press during the typing game.
- */
 async function handleCorrectGuess() {
-  const word = state.wordList[state.currentIndex];
-  // If the full word has been typed correctly
-  if (state.userInput === word) {
+  const currentWord = state.wordList[state.currentIndex];
+
+  if (state.userInput === currentWord.word) {
     state.mode = 'success';
     state.correctStreak++;
     flash(chalk.green);
 
-    // Reset for the next round (either repeat or next word)
     state.userInput = '';
     state.hasStartedTyping = false;
 
-    // Advance to the next word if streak is met
     if (state.correctStreak >= state.repeatCount) {
       state.currentIndex++;
       state.correctStreak = 0;
     }
 
-    // Check for game completion
     if (state.currentIndex >= state.wordList.length) {
       setTimeout(() => {
         process.stdout.write('\x1Bc');
@@ -169,52 +222,36 @@ async function handleCorrectGuess() {
       return;
     }
 
-    // Prepare for the next word
     setTimeout(() => {
       state.mode = 'typing';
       render();
     }, 700);
   } else {
-    // If it's just a correct character, not the full word
     render();
   }
 }
 
-/**
- * Handles an incorrect character press during the typing game.
- */
 function handleIncorrectGuess() {
   state.mode = 'error';
   flash(chalk.red);
-  // Reset after a short delay
   setTimeout(() => {
     state.userInput = '';
     state.hasStartedTyping = false;
     state.mode = 'typing';
-    state.correctStreak = 0; // Reset streak on error
+    state.correctStreak = 0;
     render();
   }, 700);
 }
 
-/**
- * Main handler for keyboard input.
- * @param {string} str - The character pressed.
- * @param {object} key - An object describing the key.
- */
 function onKeyPress(str, key) {
-  // Allow Ctrl+C to exit
   if (key.sequence === '\u0003') {
     showCursor();
     process.exit();
   }
-
   if (!state.hasStartedTyping) state.hasStartedTyping = true;
-
-  // Only process input if in 'typing' mode to prevent input during delays
   if (state.mode === 'typing') {
-    const word = state.wordList[state.currentIndex];
+    const word = state.wordList[state.currentIndex].word;
     state.userInput += str;
-
     if (word.startsWith(state.userInput)) {
       handleCorrectGuess();
     } else {
@@ -223,14 +260,10 @@ function onKeyPress(str, key) {
   }
 }
 
-/**
- * Handles Ctrl+D to delete the current word from the list.
- */
 async function onData(chunk) {
-  // Check for Ctrl+D sequence
-  if (chunk.length === 1 && chunk[0] === 4) {
+  if (chunk.length === 1 && chunk[0] === 4) { // Ctrl+D
     state.wordList.splice(state.currentIndex, 1);
-    fs.writeFileSync(state.filepath, state.wordList.join('\n'));
+    fs.writeFileSync(state.jsonFilepath, JSON.stringify(state.wordList, null, 2));
 
     if (state.currentIndex >= state.wordList.length) state.currentIndex = 0;
     if (state.wordList.length === 0) {
@@ -240,7 +273,6 @@ async function onData(chunk) {
       process.exit();
     }
 
-    // Reset state and render the new current word
     state.userInput = '';
     state.hasStartedTyping = false;
     state.mode = 'typing';
@@ -250,26 +282,21 @@ async function onData(chunk) {
 
 // --- Main Application Logic ---
 
-/**
- * Sets up listeners and starts the application.
- */
 async function main() {
-  initialize();
+  await initialize();
 
   if (state.wordList.length === 0) {
     console.log(center(chalk.yellow('Your spelling list is empty.\nAdd a word with `spell <word>`')));
     process.exit(0);
   }
 
-  // Set up input listeners
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.on('keypress', onKeyPress);
   process.stdin.on('data', onData);
-  process.on('exit', showCursor); // Ensure cursor is always shown on exit
+  process.on('exit', showCursor);
 
-  // Initial render
   render();
 }
 
