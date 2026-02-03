@@ -89,20 +89,46 @@ function wrapText(text, width) {
 
 function displayHelp() {
   clearScreen();
-  console.log(centerWithMargin(chalk.bold.yellow('\nSpell: A Science-Based Spelling Trainer'), HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(chalk.gray('----------------------------------------'), HORIZONTAL_MARGIN));
-  console.log(centerWithMargin('\n' + chalk.bold('Usage:'), HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell')}                           - Start a practice session.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell <word>')}                    - Add a new word or reset an existing one.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell --import <file>')}          - Bulk import words from a text file.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell --manage or -m')}            - Enter interactive word management mode.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell --clear or -c')}             - Interactively delete all words.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell --repeat <n> or -r <n>')} - Set drill count for practice sessions (e.g., -r 3).`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell --hide-word or -d')}         - Practice with the word hidden (definition-only).`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('spell --help or -h')}              - Show this help screen.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin('\n' + chalk.bold('In-Session Controls (Practice Mode):'), HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('Ctrl+D')}                          - Delete the current word from your list.`, HORIZONTAL_MARGIN));
-  console.log(centerWithMargin(`  ${chalk.cyan('Ctrl+C')}                          - Exit the session at any time.`, HORIZONTAL_MARGIN));
+
+  const usageItems = [
+    { cmd: 'spell', desc: 'Start a practice session.' },
+    { cmd: 'spell <word>', desc: 'Add a new word or reset an existing one.' },
+    { cmd: 'spell --import <file>', desc: 'Bulk import words from a text file.' },
+    { cmd: 'spell --manage or -m', desc: 'Enter interactive word management mode.' },
+    { cmd: 'spell --clear or -c', desc: 'Interactively delete all words.' },
+    { cmd: 'spell --repeat <n> or -r <n>', desc: 'Set drill count for practice sessions (e.g., -r 3).' },
+    { cmd: 'spell --hide-word or -d', desc: 'Practice with the word hidden (definition-only).' },
+    { cmd: 'spell --help or -h', desc: 'Show this help screen.' },
+  ];
+
+  const controlsItems = [
+    { cmd: 'Ctrl+D', desc: 'Delete the current word from your list.' },
+    { cmd: 'Ctrl+C', desc: 'Exit the session at any time.' },
+  ];
+
+  function formatBlock(items) {
+    const maxCmdLength = Math.max(...items.map(item => item.cmd.length));
+    const columnGap = 4;
+
+    return items.map(({ cmd, desc }) => {
+      const paddedCmd = cmd.padEnd(maxCmdLength + columnGap, ' ');
+      return `  ${chalk.cyan(paddedCmd)}${desc}`;
+    }).join('\n');
+  }
+
+  const output = [
+    `\n  ${chalk.bold.yellow('Spell: A Science-Based Spelling Trainer')}`,
+    `  ${chalk.gray('----------------------------------------')}`,
+    '',
+    `  ${chalk.bold('Usage:')}`,
+    formatBlock(usageItems),
+    '',
+    `  ${chalk.bold('In-Session Controls (Practice Mode):')}`,
+    formatBlock(controlsItems),
+    '' 
+  ].join('\n');
+
+  console.log(output);
   process.exit(0);
 }
 
@@ -183,8 +209,6 @@ async function migrateTxtToJson(txtFilepath, jsonFilepath) {
   console.log(chalk.bold.green('Migration complete! Old file renamed to `spellingList.txt.bak`.'));
 }
 
-const globalRl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
 async function initialize() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) displayHelp();
@@ -234,8 +258,9 @@ async function initialize() {
 
 async function clearList() {
   console.log(chalk.bold.red('This will permanently delete all words from your spelling list.'));
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => {
-    globalRl.question('Are you sure? (y/N) ', answer => {
+    rl.question('Are you sure? (y/N) ', answer => {
       if (answer.toLowerCase() === 'y') {
         state.wordList = [];
         saveWordList();
@@ -243,7 +268,7 @@ async function clearList() {
       } else {
         console.log(chalk.yellow('Operation cancelled.'));
       }
-      globalRl.close();
+      rl.close();
       resolve();
       process.exit(0);
     });
@@ -400,14 +425,20 @@ function flash(colorFn) {
   render(state.wordList[state.currentIndex].word, colorFn);
 }
 
-function renderManageScreen(rl, message = '') { 
-  clearScreen(); 
-  process.stdout.write(centerWithMargin(chalk.bold.yellow('\n-- Interactive Word Manager --'), HORIZONTAL_MARGIN) + '\n'); 
-  process.stdout.write(centerWithMargin(chalk.gray('------------------------------'), HORIZONTAL_MARGIN) + '\n'); 
+function renderManageScreen(rl, message = '') {
+  clearScreen();
+  const INDENT = '  ';
+
+  const lines = [];
+  lines.push(''); // Top margin
+  lines.push(INDENT + chalk.bold.yellow('-- Interactive Word Manager --'));
+  lines.push(INDENT + chalk.gray('------------------------------'));
+  lines.push('');
+
   if (state.wordList.length === 0) {
-    process.stdout.write(centerWithMargin(chalk.yellow('Your spelling list is empty.'), HORIZONTAL_MARGIN) + '\n'); 
+    lines.push(INDENT + chalk.yellow('Your spelling list is empty.'));
   } else {
-    state.wordList.forEach((wordData, index) => {
+    const formattedWords = state.wordList.map((wordData, index) => {
       const nextReview = new Date(wordData.nextReviewDate);
       const now = new Date();
       let status = '';
@@ -417,38 +448,95 @@ function renderManageScreen(rl, message = '') {
         const diffDays = Math.ceil(Math.abs(nextReview - now) / (1000 * 60 * 60 * 24));
         status = chalk.green(`(Level ${wordData.level}, in ${diffDays} days)`);
       }
-      process.stdout.write(centerWithMargin(`  ${index + 1}. ${wordData.word} ${status}`, HORIZONTAL_MARGIN) + '\n'); 
-    }); 
+      return { prefix: `${index + 1}.`, word: wordData.word, status };
+    });
+
+    const maxPrefixLength = Math.max(...formattedWords.map(w => w.prefix.length));
+    const maxWordLength = Math.max(...formattedWords.map(w => w.word.length));
+
+    formattedWords.forEach(fw => {
+      const paddedPrefix = fw.prefix.padEnd(maxPrefixLength, ' ');
+      const paddedWord = fw.word.padEnd(maxWordLength + 4, ' ');
+      lines.push(`${INDENT}${paddedPrefix}  ${chalk.white(paddedWord)}${fw.status}`);
+    });
   }
-  process.stdout.write(centerWithMargin('\n' + chalk.bold('Actions:'), HORIZONTAL_MARGIN) + '\n'); 
-  process.stdout.write(centerWithMargin('  (d)elete <number>    - Delete a word (e.g., d 2)', HORIZONTAL_MARGIN) + '\n'); 
-  process.stdout.write(centerWithMargin('  (r)eset <number>     - Reset a word\'s progress (e.g., r 3)', HORIZONTAL_MARGIN) + '\n'); 
-  process.stdout.write(centerWithMargin('  (q)uit               - Exit management mode', HORIZONTAL_MARGIN) + '\n'); 
-  process.stdout.write(centerWithMargin('\n' + chalk.dim(message), HORIZONTAL_MARGIN) + '\n'); 
-  // Do not call rl.prompt here, it is called after renderManageScreen.
+
+  lines.push('');
+  lines.push(INDENT + chalk.bold('Actions:'));
+
+  const actionItems = [
+    { cmd: '(d)elete <number>', desc: 'Delete a word (e.g., d 2)' },
+    { cmd: '(r)eset <number>', desc: 'Reset a word\'s progress (e.g., r 3)' },
+    { cmd: '(q)uit', desc: 'Exit management mode' },
+  ];
+
+  const maxActionCmdLength = Math.max(...actionItems.map(item => item.cmd.length));
+  
+  actionItems.forEach(({ cmd, desc }) => {
+    const paddedCmd = cmd.padEnd(maxActionCmdLength + 4, ' ');
+    lines.push(`${INDENT}  ${chalk.cyan(paddedCmd)}${desc}`);
+  });
+
+  lines.push('');
+  if (message) {
+    lines.push(centerWithMargin(chalk.dim(message), HORIZONTAL_MARGIN));
+    lines.push('');
+  }
+
+  process.stdout.write(lines.join('\n'));
 }
 
 async function manageWords() {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '> ' });
-  state.mode = 'manage';
-  renderManageScreen(rl);
-  showCursor();
-  rl.on('line', (input) => {
-    const parts = input.trim().split(' ');
-    const command = parts[0].toLowerCase();
-    const index = parseInt(parts[1], 10) - 1;
-    if (command === 'q') { rl.close(); return; }
-    if (isNaN(index) || index < 0 || index >= state.wordList.length) { renderManageScreen(rl, chalk.red('Invalid command or word number.')); return; }
-    let message = '';
-    const wordName = state.wordList[index].word;
-    switch (command) {
-      case 'd': state.wordList.splice(index, 1); saveWordList(); message = chalk.green(`Deleted "${wordName}".`); break;
-      case 'r': const now = new Date().toISOString(); state.wordList[index].level = 0; state.wordList[index].lastPracticed = now; state.wordList[index].nextReviewDate = now; saveWordList(); message = chalk.green(`Reset progress for "${wordName}".`); break;
-      default: message = chalk.red('Unknown command.'); break;
-    }
-    renderManageScreen(rl, message);
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '> ' });
+    
+    renderManageScreen(rl);
+    showCursor();
+    rl.prompt();
+
+    rl.on('line', (input) => {
+      const parts = input.trim().split(' ');
+      const command = parts[0].toLowerCase();
+      const index = parseInt(parts[1], 10) - 1;
+
+      if (command === 'q') {
+        rl.close();
+        return;
+      }
+
+      let message = '';
+      if (isNaN(index) || index < 0 || index >= state.wordList.length) {
+        message = chalk.red('Invalid command or word number.');
+      } else {
+        const wordName = state.wordList[index].word;
+        switch (command) {
+          case 'd':
+            state.wordList.splice(index, 1);
+            saveWordList();
+            message = chalk.green(`Deleted "${wordName}".`);
+            break;
+          case 'r':
+            const now = new Date().toISOString();
+            state.wordList[index].level = 0;
+            state.wordList[index].lastPracticed = now;
+            state.wordList[index].nextReviewDate = now;
+            saveWordList();
+            message = chalk.green(`Reset progress for "${wordName}".`);
+            break;
+          default:
+            message = chalk.red('Unknown command.');
+            break;
+        }
+      }
+      renderManageScreen(rl, message);
+      rl.prompt();
+    });
+
+    rl.on('close', () => {
+      showCursor();
+      process.exit(0);
+    });
   });
-  rl.on('close', () => { showCursor(); process.exit(0); });
 }
 
 async function handleCorrectGuess() {
@@ -496,15 +584,14 @@ function handleIncorrectGuess() {
 }
 
 function onKeyPress(str, key) {
-  if (key.sequence === '\u0003') {
-    showCursor();
+  if (key.sequence === '\u0003' || (key.ctrl && key.name === 'c')) {
     process.exit();
   }
   if (!state.hasStartedTyping) {
-    if (str.match(/^[a-zA-Z]$/)) { // Only start on a letter press
+    if (str && str.match(/^[a-zA-Z]$/)) { 
       state.hasStartedTyping = true;
     } else {
-      return; // Ignore non-letter keys at the start
+      return; 
     }
   }
   
@@ -512,7 +599,7 @@ function onKeyPress(str, key) {
     if (key.name === 'backspace') {
       state.userInput = state.userInput.slice(0, -1);
       render();
-    } else if (str && !key.ctrl && !key.meta) { // Ignore special keys
+    } else if (str && !key.ctrl && !key.meta) { 
       state.userInput += str;
       if (state.wordList[state.currentIndex].word.startsWith(state.userInput)) {
         if (state.userInput === state.wordList[state.currentIndex].word) {
@@ -547,21 +634,7 @@ async function onData(chunk) {
   }
 }
 
-// --- Main Application Logic ---
-
-async function main() {
-  // This initial call to createInterface and then close it ensures process.stdin is in normal mode
-  // if it's a TTY, preventing interference with raw mode later if needed.
-  const initialRl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  initialRl.close(); 
-
-  await initialize();
-
-  if (state.mode === 'manage') {
-    await manageWords();
-    return;
-  }
-
+async function startPracticeSession() {
   if (state.wordList.length === 0) {
     process.stdout.write(centerWithMargin(chalk.yellow('Your spelling list is empty.\nAdd a word with `spell <word>`'), HORIZONTAL_MARGIN) + '\n');
     process.exit(0);
@@ -571,15 +644,35 @@ async function main() {
     process.stdout.write(centerWithMargin(chalk.bold.yellow('✨ No words due for review right now! Come back later. ✨'), HORIZONTAL_MARGIN) + '\n');
     process.exit(0);
   }
+  
+  const cleanup = () => {
+    if(process.stdin.isTTY) process.stdin.setRawMode(false);
+    showCursor();
+  };
+
+  process.on('exit', cleanup);
+  process.on('SIGINT', () => process.exit());
 
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.resume();
+
   process.stdin.on('keypress', onKeyPress);
   process.stdin.on('data', onData);
-  process.on('exit', showCursor);
-
+  
   render();
+}
+
+// --- Main Application Logic ---
+
+async function main() {
+  await initialize();
+
+  if (state.mode === 'manage') {
+    await manageWords();
+  } else {
+    await startPracticeSession();
+  }
 }
 
 // --- Run Application ---
