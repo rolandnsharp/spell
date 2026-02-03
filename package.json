@@ -1,6 +1,6 @@
 {
   "name": "@rolandnsharp/spell",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "A science-based CLI app for spelling, typing, and vocabulary training.",
   "main": "index.js",
   "type": "module",

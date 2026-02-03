@@ -37,7 +37,8 @@ const state = {
 
 function hideCursor() { process.stdout.write('\x1B[?25l'); }
 function showCursor() { process.stdout.write('\x1B[?25h'); }
-function clearScreen() { process.stdout.write('\x1Bc'); }
+// Use a less aggressive "soft" clear that's better for TUIs
+function clearScreen() { process.stdout.write('\x1B[2J\x1B[H'); }
 
 const HORIZONTAL_MARGIN = 4; // General padding on each side for most content
 const DEFINITION_INNER_PADDING = 4; // Additional padding *within* the definition's content area
@@ -301,9 +302,11 @@ function censorWordInDefinition(word, definition) {
   return definition.replace(regex, match => '*'.repeat(match.length));
 }
 
-function render(wordOverride = null, colorFn = chalk.white) { 
+function render(wordOverride = null, colorFn = chalk.white) {
   const currentWord = state.wordList[state.currentIndex];
   if (!currentWord) return;
+
+  let contentBuffer = '';
 
   let displayWord;
   if (wordOverride !== null) {
@@ -320,15 +323,9 @@ function render(wordOverride = null, colorFn = chalk.white) {
     const blanks = ' '.repeat(remaining * 2 - 1);
     displayWord = typed + (blanks.length > 0 ? ' ' + blanks : '');
   }
-  
+
   const censoredDefinition = censorWordInDefinition(currentWord.word, currentWord.definition);
 
-  clearScreen();
-  
-  // Build entire output string first
-  let outputBuffer = '';
-
-  // Persistent Header (Correct/Incorrect/Onboarding messages)
   let headerMessage = '';
   if (state.showSuccessIndicator) {
     headerMessage = chalk.green('✔ Correct!');
@@ -339,34 +336,26 @@ function render(wordOverride = null, colorFn = chalk.white) {
   } else if (state.mode === 'typing' && !state.hasStartedTyping) {
     headerMessage = chalk.dim('Start typing the current spelling word!');
   }
-  outputBuffer += centerWithMargin(headerMessage, HORIZONTAL_MARGIN) + '\n';
-  outputBuffer += '\n'; // Spacer line (Row 2)
+  contentBuffer += centerWithMargin(headerMessage, HORIZONTAL_MARGIN) + '\n';
+  contentBuffer += '\n';
 
-  // Dashboard - Boxed Word Display
   const wordColorFn = (state.mode === 'error') ? chalk.red : colorFn;
   const wordLine = `${chalk.bold(wordColorFn(displayWord))}`;
   const levelLine = `${chalk.dim('Level:')}  ${currentWord.level}`;
   const streakLine = `${chalk.dim('Streak:')} ${state.currentWordStreak} / ${state.repeatCount}`;
-  // Determine the widest line for box drawing (stripping ANSI codes for accurate length)
-  // The box will only be around the word line.
-  const boxInnerContentWidth = stripAnsi(wordLine).length + 1 + 2; // +1 for padding, +2 for internal padding
-  
-  // Build the un-centered box string for the word only
+  const boxInnerContentWidth = stripAnsi(wordLine).length + 1 + 2;
+
   let boxedWordContent = '';
   boxedWordContent += chalk.gray('╔') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╗\n');
-  const paddingNeeded = boxInnerContentWidth - stripAnsi(wordLine).length - 1; // Subtract 1 for the new padding space
+  const paddingNeeded = boxInnerContentWidth - stripAnsi(wordLine).length - 1;
   boxedWordContent += chalk.gray('║ ') + wordLine + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
   boxedWordContent += chalk.gray('╚') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╝');
   
-  outputBuffer += centerWithMargin(boxedWordContent, HORIZONTAL_MARGIN) + '\n';
-
-  // Render Level and Streak lines separately, outside the box
-  outputBuffer += centerWithMargin(levelLine, HORIZONTAL_MARGIN) + '\n';
-  outputBuffer += centerWithMargin(streakLine, HORIZONTAL_MARGIN) + '\n';
-
-  // Definition
-  outputBuffer += '\n'; // Spacer (after box)
-  outputBuffer += centerWithMargin(chalk.dim('Definition:'), HORIZONTAL_MARGIN) + '\n';
+  contentBuffer += centerWithMargin(boxedWordContent, HORIZONTAL_MARGIN) + '\n';
+  contentBuffer += centerWithMargin(levelLine, HORIZONTAL_MARGIN) + '\n';
+  contentBuffer += centerWithMargin(streakLine, HORIZONTAL_MARGIN) + '\n';
+  contentBuffer += '\n';
+  contentBuffer += centerWithMargin(chalk.dim('Definition:'), HORIZONTAL_MARGIN) + '\n';
   
   const totalTerminalWidth = process.stdout.columns || 80;
   const definitionContentWidth = totalTerminalWidth - (HORIZONTAL_MARGIN * 2) - (DEFINITION_INNER_PADDING * 2);
@@ -379,46 +368,33 @@ function render(wordOverride = null, colorFn = chalk.white) {
     return paddingLeft + line + paddingRight;
   }).join('\n');
 
-  outputBuffer += chalk.dim(paddedDefinitionBlock);
+  contentBuffer += chalk.dim(paddedDefinitionBlock);
 
-  // Finally, write the entire buffer to stdout
-  process.stdout.write(outputBuffer);
+  let finalRenderBuffer = '\x1B[?25l' + '\x1B[2J\x1B[H' + contentBuffer;
 
-  // Cursor logic (centralized and robust)
   if (state.mode === 'typing') {
-    const totalTerminalWidth = process.stdout.columns || 80;
-    const boxVisualWidth = stripAnsi(boxedWordContent.split('\n')[0]).length; // Get width of top box border
-    // Calculate the left edge of the box on the screen, relative to the terminal's left edge.
+    const boxVisualWidth = stripAnsi(boxedWordContent.split('\n')[0]).length;
     const boxLeftEdgeOnScreen = Math.floor((totalTerminalWidth - boxVisualWidth) / 2);
-    
-    // The 'Word:' line is the second line (index 1) of the `linesContent` array used to build `boxedContent`.
-    const wordTextVisualOffset = 2; // 1 for the left box border '║' + 1 for padding
-
-    // Cursor row: Header message (1 line) + Spacer (1 line) + Box top border (1 line) = 3 lines before the wordLine. So row 4.
+    const wordTextVisualOffset = 2;
     const cursorRow = 4;
-
     let cursorColumn;
+
     if (!state.hasStartedTyping) {
-        // Position over the first letter of the word. Column is 1-based.
         cursorColumn = boxLeftEdgeOnScreen + wordTextVisualOffset + 1; 
     } else {
-        // Position for the *next* character to be typed, after the spaced input
         const charsTyped = state.userInput.length;
         cursorColumn = boxLeftEdgeOnScreen + wordTextVisualOffset + (charsTyped * 2) + 1;
     }
 
-    process.stdout.write(`\x1B[${cursorRow};${cursorColumn}H`); // Move cursor
-    
+    finalRenderBuffer += `\x1B[${cursorRow};${cursorColumn}H`;
     if (!state.hasStartedTyping) {
-      process.stdout.write('\x1B[?12h'); // Start blinking
-      showCursor(); 
+      finalRenderBuffer += '\x1B[?12h\x1B[?25h';
     } else {
-      process.stdout.write('\x1B[?12l'); // Stop blinking
-      showCursor(); 
+      finalRenderBuffer += '\x1B[?12l\x1B[?25h';
     }
-  } else {
-    hideCursor(); 
   }
+
+  process.stdout.write(finalRenderBuffer);
 }
 
 function flash(colorFn) {
@@ -488,10 +464,14 @@ function renderManageScreen(rl, message = '') {
 
 async function manageWords() {
   return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '> ' });
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     
+    // Disable raw mode before starting readline to prevent double input
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+
     renderManageScreen(rl);
     showCursor();
+    rl.setPrompt('> ');
     rl.prompt();
 
     rl.on('line', (input) => {
@@ -533,6 +513,7 @@ async function manageWords() {
     });
 
     rl.on('close', () => {
+      clearScreen(); // Ensure screen is cleared on exit from manage mode
       showCursor();
       process.exit(0);
     });
@@ -645,13 +626,19 @@ async function startPracticeSession() {
     process.exit(0);
   }
   
+  // This cleanup function will be called on process exit or SIGINT
   const cleanup = () => {
-    if(process.stdin.isTTY) process.stdin.setRawMode(false);
-    showCursor();
+    if(process.stdin.isTTY) process.stdin.setRawMode(false); // Restore normal terminal mode
+    showCursor(); // Ensure cursor is visible
+    clearScreen(); // Clear the entire screen
   };
 
   process.on('exit', cleanup);
-  process.on('SIGINT', () => process.exit());
+  // Handle Ctrl+C specifically to ensure cleanup runs before exit
+  process.on('SIGINT', () => {
+    // cleanup is called by the 'exit' event, so we just need to exit
+    process.exit();
+  });
 
   readline.emitKeypressEvents(process.stdin);
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -667,6 +654,11 @@ async function startPracticeSession() {
 
 async function main() {
   await initialize();
+
+  // Ensure raw mode is off by default for consistency before branching logic
+  if (process.stdin.isTTY && process.stdin.isRaw) {
+    process.stdin.setRawMode(false);
+  }
 
   if (state.mode === 'manage') {
     await manageWords();
