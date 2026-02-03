@@ -317,13 +317,13 @@ function render(wordOverride = null, colorFn = chalk.white) {
   const streakLine = `${chalk.dim('Streak:')} ${state.currentWordStreak} / ${state.repeatCount}`;
   // Determine the widest line for box drawing (stripping ANSI codes for accurate length)
   // The box will only be around the word line.
-  const boxInnerContentWidth = stripAnsi(wordLine).length + 2; // +2 for internal padding
+  const boxInnerContentWidth = stripAnsi(wordLine).length + 1 + 2; // +1 for padding, +2 for internal padding
   
   // Build the un-centered box string for the word only
   let boxedWordContent = '';
   boxedWordContent += chalk.gray('╔') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╗\n');
-  const paddingNeeded = boxInnerContentWidth - stripAnsi(wordLine).length;
-  boxedWordContent += chalk.gray('║') + wordLine + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
+  const paddingNeeded = boxInnerContentWidth - stripAnsi(wordLine).length - 1; // Subtract 1 for the new padding space
+  boxedWordContent += chalk.gray('║ ') + wordLine + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
   boxedWordContent += chalk.gray('╚') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╝');
   
   outputBuffer += centerWithMargin(boxedWordContent, HORIZONTAL_MARGIN) + '\n';
@@ -360,7 +360,7 @@ function render(wordOverride = null, colorFn = chalk.white) {
     const boxLeftEdgeOnScreen = Math.floor((totalTerminalWidth - boxVisualWidth) / 2);
     
     // The 'Word:' line is the second line (index 1) of the `linesContent` array used to build `boxedContent`.
-    const wordTextVisualOffset = 1; // 1 for the left box border '║'
+    const wordTextVisualOffset = 2; // 1 for the left box border '║' + 1 for padding
 
     // Cursor row: Header message (1 line) + Spacer (1 line) + Box top border (1 line) = 3 lines before the wordLine. So row 4.
     const cursorRow = 4;
