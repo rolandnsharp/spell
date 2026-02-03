@@ -312,28 +312,25 @@ function render(wordOverride = null, colorFn = chalk.white) {
 
   // Dashboard - Boxed Word Display
   const wordColorFn = (state.mode === 'error') ? chalk.red : colorFn;
-  const wordLine = `${chalk.dim('Word:')}   ${chalk.bold(wordColorFn(displayWord))}`;
+  const wordLine = `${chalk.bold(wordColorFn(displayWord))}`;
   const levelLine = `${chalk.dim('Level:')}  ${currentWord.level}`;
   const streakLine = `${chalk.dim('Streak:')} ${state.currentWordStreak} / ${state.repeatCount}`;
-
   // Determine the widest line for box drawing (stripping ANSI codes for accurate length)
-  const lines = [wordLine, levelLine, streakLine];
-  const wordLineStripped = stripAnsi(lines[0]);
-  const displayWordStripped = stripAnsi(currentWord.word.split('').join(' ')); 
-  const wordTextVisualOffset = wordLineStripped.indexOf(displayWordStripped);
-  const maxWidth = Math.max(...lines.map(line => stripAnsi(line).length));
-  const boxInnerContentWidth = maxWidth + 2; // +2 for internal padding
+  // The box will only be around the word line.
+  const boxInnerContentWidth = stripAnsi(wordLine).length + 2; // +2 for internal padding
   
-  // Build the un-centered box string
-  let boxedContent = '';
-  boxedContent += chalk.gray('╔') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╗\n');
-  lines.forEach(line => {
-    const paddingNeeded = boxInnerContentWidth - stripAnsi(line).length;
-    boxedContent += chalk.gray('║') + line + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
-  });
-  boxedContent += chalk.gray('╚') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╝');
+  // Build the un-centered box string for the word only
+  let boxedWordContent = '';
+  boxedWordContent += chalk.gray('╔') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╗\n');
+  const paddingNeeded = boxInnerContentWidth - stripAnsi(wordLine).length;
+  boxedWordContent += chalk.gray('║') + wordLine + ' '.repeat(paddingNeeded) + chalk.gray('║\n');
+  boxedWordContent += chalk.gray('╚') + chalk.gray('═'.repeat(boxInnerContentWidth)) + chalk.gray('╝');
   
-  outputBuffer += centerWithMargin(boxedContent, HORIZONTAL_MARGIN) + '\n';
+  outputBuffer += centerWithMargin(boxedWordContent, HORIZONTAL_MARGIN) + '\n';
+
+  // Render Level and Streak lines separately, outside the box
+  outputBuffer += centerWithMargin(levelLine, HORIZONTAL_MARGIN) + '\n';
+  outputBuffer += centerWithMargin(streakLine, HORIZONTAL_MARGIN) + '\n';
 
   // Definition
   outputBuffer += '\n'; // Spacer (after box)
@@ -358,12 +355,12 @@ function render(wordOverride = null, colorFn = chalk.white) {
   // Cursor logic (centralized and robust)
   if (state.mode === 'typing') {
     const totalTerminalWidth = process.stdout.columns || 80;
-    const boxVisualWidth = stripAnsi(boxedContent.split('\n')[0]).length; // Get width of top box border
+    const boxVisualWidth = stripAnsi(boxedWordContent.split('\n')[0]).length; // Get width of top box border
     // Calculate the left edge of the box on the screen, relative to the terminal's left edge.
     const boxLeftEdgeOnScreen = Math.floor((totalTerminalWidth - boxVisualWidth) / 2);
     
     // The 'Word:' line is the second line (index 1) of the `linesContent` array used to build `boxedContent`.
-    const wordTextVisualOffset = stripAnsi(`${chalk.dim('Word:')}   `).length; // Robustly get prefix length
+    const wordTextVisualOffset = 1; // 1 for the left box border '║'
 
     // Cursor row: Header message (1 line) + Spacer (1 line) + Box top border (1 line) = 3 lines before the wordLine. So row 4.
     const cursorRow = 4;
@@ -371,11 +368,11 @@ function render(wordOverride = null, colorFn = chalk.white) {
     let cursorColumn;
     if (!state.hasStartedTyping) {
         // Position over the first letter of the word. Column is 1-based.
-        cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + 1; 
+        cursorColumn = boxLeftEdgeOnScreen + wordTextVisualOffset + 1; 
     } else {
         // Position for the *next* character to be typed, after the spaced input
         const charsTyped = state.userInput.length;
-        cursorColumn = boxLeftEdgeOnScreen + 1 + wordTextVisualOffset + 1 + (charsTyped * 2);
+        cursorColumn = boxLeftEdgeOnScreen + wordTextVisualOffset + (charsTyped * 2) + 1;
     }
 
     process.stdout.write(`\x1B[${cursorRow};${cursorColumn}H`); // Move cursor
