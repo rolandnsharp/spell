@@ -4,6 +4,8 @@ A minimalist, high-performance terminal app for mastering spelling, typing, and 
 
 Unlike traditional spaced repetition systems like Anki, **Spell focuses on building muscle memory for touch-typing words correctly.** It drills you on actively typing the word, not just passively recognizing it. This targeted approach significantly enhances typing fluency and spelling accuracy, making it ideal for those who want to internalize words through physical repetition.
 
+**[Read the introductory blog post: "Introducing Spell, a CLI Spelling Trainer Using Touch-Typing"](https://rolandnsharp.github.io/posts/introducing-spell-a-cli-spelling-trainer-using-touch-typing/)**
+
 ![Spell Demo](https-i-imgur-com-21i5j1t-gif)
 
 ## Features
